@@ -1,0 +1,2895 @@
+{
+    "info": {
+        "name": "EverDigitech Admin API",
+        "description": "Admin API (Laravel + Sanctum SPA cookies). Run 'Auth > 1. Get CSRF cookie', then 'Auth > 2. Login'. Import the environment file too. See docs/API.md.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "// Sanctum SPA auth: the API only starts a session for requests that come from a \"stateful\" origin,",
+                    "// and it wants the XSRF cookie echoed back in the X-XSRF-TOKEN header on every write.",
+                    "try {",
+                    "  const origin = pm.variables.get('origin') || 'http://localhost:3003';",
+                    "  pm.request.headers.upsert({ key: 'Origin', value: origin });",
+                    "  pm.request.headers.upsert({ key: 'Referer', value: origin + '/' });",
+                    "  pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+                    "  if (!['GET', 'HEAD', 'OPTIONS'].includes(pm.request.method)) {",
+                    "    // Token comes from the cookie jar, or from the copy saved by \"1. Get CSRF cookie\".",
+                    "    const fromCookie = pm.cookies.get('XSRF-TOKEN');",
+                    "    const raw = fromCookie || pm.collectionVariables.get('xsrfToken');",
+                    "    if (raw) {",
+                    "      pm.request.headers.upsert({ key: 'X-XSRF-TOKEN', value: fromCookie ? decodeURIComponent(raw) : raw });",
+                    "      console.log('X-XSRF-TOKEN added (' + (fromCookie ? 'from cookie' : 'from saved variable') + ')');",
+                    "    } else {",
+                    "      console.warn('NO XSRF TOKEN. Run \"Auth > 1. Get CSRF cookie\" first, then send this request again.');",
+                    "    }",
+                    "  }",
+                    "} catch (e) {",
+                    "  console.error('Pre-request script failed: ' + e.message);",
+                    "}"
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "xsrfToken",
+            "value": ""
+        },
+        {
+            "key": "salesRoleId",
+            "value": ""
+        },
+        {
+            "key": "supportRoleId",
+            "value": ""
+        },
+        {
+            "key": "superAdminRoleId",
+            "value": ""
+        },
+        {
+            "key": "roleId",
+            "value": ""
+        },
+        {
+            "key": "staffId",
+            "value": ""
+        },
+        {
+            "key": "accountId",
+            "value": ""
+        },
+        {
+            "key": "impersonationToken",
+            "value": ""
+        },
+        {
+            "key": "adminTicketId",
+            "value": ""
+        },
+        {
+            "key": "departmentId",
+            "value": ""
+        },
+        {
+            "key": "feedCursor",
+            "value": ""
+        },
+        {
+            "key": "cannedReplyId",
+            "value": ""
+        },
+        {
+            "key": "attachmentId",
+            "value": ""
+        },
+        {
+            "key": "productGroupId",
+            "value": ""
+        },
+        {
+            "key": "productId",
+            "value": ""
+        },
+        {
+            "key": "extensionId",
+            "value": ""
+        },
+        {
+            "key": "domainId",
+            "value": ""
+        }
+    ],
+    "item": [
+        {
+            "name": "Health",
+            "item": [
+                {
+                    "name": "Health check",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/health",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "health"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Auth",
+            "item": [
+                {
+                    "name": "1. Get CSRF cookie (run first)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/sanctum/csrf-cookie",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "sanctum",
+                                "csrf-cookie"
+                            ]
+                        },
+                        "description": "Sets the XSRF-TOKEN and session cookies. Run once before Login, and again if you ever get a 419."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 204', () => pm.response.to.have.status(204));",
+                                    "// Keep a copy of the token (URL-decoded) in case the cookie jar can't be read by later requests.",
+                                    "const setCookies = pm.response.headers.filter((h) => h.key.toLowerCase() === 'set-cookie').map((h) => h.value);",
+                                    "const xsrf = setCookies.map((c) => /^XSRF-TOKEN=([^;]+)/.exec(c)).filter(Boolean)[0];",
+                                    "pm.test('XSRF-TOKEN cookie was sent', () => pm.expect(xsrf, 'no XSRF-TOKEN in Set-Cookie').to.not.equal(undefined));",
+                                    "if (xsrf) pm.collectionVariables.set('xsrfToken', decodeURIComponent(xsrf[1]));",
+                                    "pm.test('session cookie was sent', () => pm.expect(setCookies.some((c) => c.startsWith('everdigitech_session='))).to.equal(true));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "2. Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/login",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"remember\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Errors: 422 invalid_credentials, 429 account_locked (5 failures = 15 minute lock), 403 account_suspended."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "pm.test('returns Me', () => { const d = (pm.response.json() || {}).data || {}; pm.expect(Object.keys(d)).to.include.members(['user', 'role', 'permissions']); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Me",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/me",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "me"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Login history (last 50, 10 per page)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/me/login-history?page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "me",
+                                "login-history"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "disabled": false
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/logout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "logout"
+                            ]
+                        },
+                        "description": "Signs out the admin guard only. The session itself is kept."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Forgot password",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/forgot-password",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "forgot-password"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"email\": \"{{email}}\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Always the same answer. The email is written to storage/logs/laravel.log (MAIL_MAILER=log). Copy the token from the link."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Reset password / set password from invite",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/reset-password",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "reset-password"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"token\": \"PASTE_TOKEN_FROM_LOG\",\n  \"email\": \"{{email}}\",\n  \"password\": \"New-Strong-Pass-123\",\n  \"password_confirmation\": \"New-Strong-Pass-123\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Min 12 characters, mixed case, a number, and not in a known data breach. Works for reset links (60 min) and staff invites (48 h)."
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Roles & permissions",
+            "item": [
+                {
+                    "name": "Permission catalog",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/permissions",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "permissions"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "pm.test('13 modules', () => pm.expect(pm.response.json().data.length).to.eql(13));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List roles",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const roles = pm.response.json().data;",
+                                    "const id = (n) => (roles.find((r) => r.name === n) || {}).id;",
+                                    "pm.collectionVariables.set('salesRoleId', id('Sales'));",
+                                    "pm.collectionVariables.set('supportRoleId', id('Support Staff'));",
+                                    "pm.collectionVariables.set('superAdminRoleId', id('Super Admin'));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Show role",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles/{{salesRoleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles",
+                                "{{salesRoleId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Create role",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Content Editor\",\n  \"description\": \"Writes copy\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "A new role starts with no permissions. Saves its id as {{roleId}}."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set('roleId', pm.response.json().data.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Update role (name, description, permissions)",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles/{{roleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles",
+                                "{{roleId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Content Editor\",\n  \"description\": \"Writes and publishes copy\",\n  \"permissions\": [\n    \"clients.view\",\n    \"reports.export\"\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "reports.export automatically brings reports.view. Giving staff.* or roles.* needs a Super Admin. The Super Admin role answers 403 role_locked."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete role",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles/{{roleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles",
+                                "{{roleId}}"
+                            ]
+                        },
+                        "description": "422 role_in_use while staff still have the role."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Try to edit the locked Super Admin role (403 role_locked)",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/roles/{{superAdminRoleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "roles",
+                                "{{superAdminRoleId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Boss\",\n  \"description\": \"\",\n  \"permissions\": []\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 403', () => pm.response.to.have.status(403));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Staff",
+            "item": [
+                {
+                    "name": "List staff",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff?page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "role",
+                                    "value": "{{salesRoleId}}",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "invited",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "search",
+                                    "value": "arif",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Tick the disabled query params to filter: status (active|invited|suspended), role (a role id), search. 15 per page. meta.counts follows role and search; meta.stats is everyone."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "pm.test('has tab counts and card stats', () => { const m = pm.response.json().meta; pm.expect(m.counts).to.have.keys('all', 'active', 'invited', 'suspended'); pm.expect(m.stats).to.have.property('activeSuperAdmins'); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Role options for the staff form",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/roles",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "roles"
+                            ]
+                        },
+                        "description": "Needs only staff.view. Returns id, name, description and isSuperAdmin for every role."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Create staff (sends invite email)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test Person\",\n  \"email\": \"test.person@example.com\",\n  \"phone\": \"+8801711223344\",\n  \"role\": \"{{salesRoleId}}\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "No password. Open storage/logs/laravel.log for the 'Set your password' link, then call Reset password with that token. Saves the id as {{staffId}}."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set('staffId', pm.response.json().data.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Show staff",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/{{staffId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "{{staffId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Update staff",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/{{staffId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "{{staffId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test Person\",\n  \"phone\": \"+8801711223344\",\n  \"role\": \"{{supportRoleId}}\",\n  \"status\": \"active\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Changing the role or suspending ends that person's sessions at once."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Suspend staff",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/{{staffId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "{{staffId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Test Person\",\n  \"phone\": \"+8801711223344\",\n  \"role\": \"{{supportRoleId}}\",\n  \"status\": \"suspended\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Resend invite",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/{{staffId}}/resend-invite",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "{{staffId}}",
+                                "resend-invite"
+                            ]
+                        },
+                        "description": "422 already_active if the person has signed in."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete staff (soft delete)",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/staff/{{staffId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "staff",
+                                "{{staffId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Clients",
+            "item": [
+                {
+                    "name": "List clients",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients?page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "active",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "group",
+                                    "value": "vip",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "search",
+                                    "value": "dhaka",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "sort",
+                                    "value": "-joined",
+                                    "disabled": true
+                                }
+                            ]
+                        },
+                        "description": "Needs clients.view. Tick the disabled params to filter: status (active|inactive|closed|all), group (regular|reseller|vip|all), search (name, company or owner email), sort (name, joined, balance, services, domains; prefix - for descending; default -joined). 15 per page; a page past the end returns the last page. meta.counts ignores the status filter (for the tabs) but follows group and search. Run 'php artisan migrate:fresh --seed' in the local environment to get 60 demo clients."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const body = pm.response.json();",
+                                    "pm.test('has the paginated envelope with tab counts', () => {",
+                                    "  pm.expect(body).to.have.property('data');",
+                                    "  pm.expect(body.meta.counts).to.have.keys('all', 'active', 'inactive', 'closed');",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List clients: inactive resellers matching 'a'",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients?status=inactive&group=reseller&search=a",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients"
+                            ],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "inactive",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "group",
+                                    "value": "reseller",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "search",
+                                    "value": "a",
+                                    "disabled": false
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const body = pm.response.json();",
+                                    "pm.test('has the paginated envelope with tab counts', () => {",
+                                    "  pm.expect(body).to.have.property('data');",
+                                    "  pm.expect(body.meta.counts).to.have.keys('all', 'active', 'inactive', 'closed');",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List clients: invalid sort (422)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients?sort=password",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients"
+                            ],
+                            "query": [
+                                {
+                                    "key": "sort",
+                                    "value": "password",
+                                    "disabled": false
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 422', () => pm.response.to.have.status(422));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Log in as client (saves the token)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients/{{accountId}}/impersonate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients",
+                                "{{accountId}}",
+                                "impersonate"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs clients.login_as (Super Admin, Admin). Optional body {\"client_user_id\": 12} for a member instead of the owner. Saves the one-time token (60 seconds) in impersonationToken: now run \"Log in as client > Consume impersonation token\" in the CLIENT collection. 422 account_closed for a closed account. Set accountId first (a client account id from List clients)."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const url = (pm.response.json() || {}).url || '';",
+                                    "pm.test('url points to the client panel', () => pm.expect(url).to.include('/impersonate?token='));",
+                                    "const m = /token=([A-Za-z0-9]+)/.exec(url);",
+                                    "if (m) { pm.collectionVariables.set('impersonationToken', m[1]); pm.environment.set('impersonationToken', m[1]); }"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Client detail: show",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients/{{accountId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients",
+                                "{{accountId}}"
+                            ]
+                        },
+                        "description": "Needs clients.view. Owner, team, stats, recent tickets, domains and sign-ins."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Client detail: change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/clients/{{accountId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "clients",
+                                "{{accountId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Uddin Traders\",\n  \"company\": \"Uddin Traders\",\n  \"group\": \"regular\",\n  \"status\": \"active\",\n  \"notes\": \"\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs clients.edit. Only the fields sent change. group: regular, reseller, vip. status: active, inactive, closed."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Support tickets",
+            "item": [
+                {
+                    "name": "Live feed (what is new since the cursor)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/feed?after={{feedCursor}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "feed"
+                            ],
+                            "query": [
+                                {
+                                    "key": "after",
+                                    "value": "{{feedCursor}}"
+                                }
+                            ]
+                        },
+                        "description": "Run it once with an empty feedCursor (remove the after parameter) to get the starting cursor, then again after a client opens a ticket: the event appears. The admin panel does this every 20 seconds."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = (pm.response.json() || {}).data || {}; if (d.cursor !== undefined) pm.collectionVariables.set('feedCursor', String(d.cursor));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "List tickets",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets?page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets"
+                            ],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Filters: status, priority, department, assigned (me, unassigned, a staff id), search, sort (newest, oldest). Saves the first ticket id in adminTicketId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = ((pm.response.json() || {}).data || [])[0]; if (d) pm.collectionVariables.set('adminTicketId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Options (departments and staff)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/options",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "options"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "One ticket (the thread, with staff notes)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Download an attachment",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}/attachments/{{attachmentId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}",
+                                "attachments",
+                                "{{attachmentId}}"
+                            ]
+                        },
+                        "description": "Any file of the thread, staff notes included. Set attachmentId from the thread (replies[].attachments[].id), then use Send and Download."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Reply to the client",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}/replies",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}",
+                                "replies"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"message\": \"Please clear your cache and try again.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "The ticket becomes answered and the client gets a queued email (run the queue worker). Needs tickets.edit."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Add an internal note",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}/replies",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}",
+                                "replies"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"message\": \"Ask the server team.\",\n  \"internal\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Nobody is told and the status stays."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Change status, priority or department",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"closed\",\n  \"priority\": \"high\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Any of status (open, answered, closed), priority (low, medium, high), departmentId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Assign",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/tickets/{{adminTicketId}}/assign",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "tickets",
+                                "{{adminTicketId}}",
+                                "assign"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"adminId\": null\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Send a staff id to assign, null to take it back. Needs tickets.assign."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Departments: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/ticket-departments",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "ticket-departments"
+                            ]
+                        },
+                        "description": "All departments, switched off ones too. Saves the first id in departmentId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = ((pm.response.json() || {}).data || [])[0]; if (d) pm.collectionVariables.set('departmentId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Departments: add",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/ticket-departments",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "ticket-departments"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Abuse reports\",\n  \"description\": \"Spam and abuse.\",\n  \"isActive\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs tickets.edit. The name must be unique."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "const d = ((pm.response.json() || {}).data || {}); if (d.id) pm.collectionVariables.set('departmentId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Departments: update or switch off",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/ticket-departments/{{departmentId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "ticket-departments",
+                                "{{departmentId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Abuse team\",\n  \"isActive\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "422 last_active_department when it is the last one that is on."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Departments: reorder",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/ticket-departments/reorder",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "ticket-departments",
+                                "reorder"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"ids\": [\n    1,\n    2,\n    3,\n    4\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Send EVERY department id once, in the new order (use the ids from the list)."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Departments: delete",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/ticket-departments/{{departmentId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "ticket-departments",
+                                "{{departmentId}}"
+                            ]
+                        },
+                        "description": "Needs tickets.delete. 422 department_in_use when tickets use it."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Saved replies: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/canned-replies",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "canned-replies"
+                            ]
+                        },
+                        "description": "Needs tickets.edit. Saves the first id in cannedReplyId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = ((pm.response.json() || {}).data || [])[0]; if (d) pm.collectionVariables.set('cannedReplyId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Saved replies: add",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/canned-replies",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "canned-replies"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Clear your cache\",\n  \"body\": \"Hello {client_name},\\n\\nPlease clear your browser cache and try again.\\n\\nRegards,\\n{staff_name}\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "The words {client_name}, {ticket_number} and {staff_name} are filled in when the reply is inserted in the admin panel."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "const d = ((pm.response.json() || {}).data || {}); if (d.id) pm.collectionVariables.set('cannedReplyId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Saved replies: change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/canned-replies/{{cannedReplyId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "canned-replies",
+                                "{{cannedReplyId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"title\": \"Clear your cache (updated)\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Saved replies: delete",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/canned-replies/{{cannedReplyId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "canned-replies",
+                                "{{cannedReplyId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Products & pricing",
+            "item": [
+                {
+                    "name": "Groups: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/product-groups",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "product-groups"
+                            ]
+                        },
+                        "description": "Needs products.view. All groups, hidden ones too. Saves the first id in productGroupId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = ((pm.response.json() || {}).data || [])[0]; if (d) pm.collectionVariables.set('productGroupId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Groups: add",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/product-groups",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "product-groups"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Web Hosting\",\n  \"type\": \"hosting\",\n  \"description\": \"Fast, secure hosting.\",\n  \"isActive\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs products.create. type: hosting, server, domain, sms, software, service. The slug is made from the name."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "const d = ((pm.response.json() || {}).data || {}); if (d.id) pm.collectionVariables.set('productGroupId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Groups: change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/product-groups/{{productGroupId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "product-groups",
+                                "{{productGroupId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"name\": \"Shared Hosting\",\n  \"isActive\": true,\n  \"sortOrder\": 1\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs products.edit. A rename keeps the slug."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Groups: delete",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/product-groups/{{productGroupId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "product-groups",
+                                "{{productGroupId}}"
+                            ]
+                        },
+                        "description": "Needs products.delete. 422 group_in_use when the group has products."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: options (groups, cycles, tax)",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products/options",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products",
+                                "options"
+                            ]
+                        },
+                        "description": "What the product form needs: groups, billing cycles, types, currency and the tax setting."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products?status=all&page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products"
+                            ],
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "all"
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Filters: group (id), status (all, active, inactive), search. meta.counts follows every filter except status. Saves the first id in productId."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                                    "const d = ((pm.response.json() || {}).data || [])[0]; if (d) pm.collectionVariables.set('productId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: one",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products/{{productId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products",
+                                "{{productId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: add",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"groupId\": \"{{productGroupId}}\",\n  \"name\": \"Turbo Business\",\n  \"tagline\": \"For growing sites\",\n  \"description\": \"Everything a growing business needs.\",\n  \"features\": [\n    \"10 GB SSD\",\n    \"Free SSL\",\n    \"Daily backups\"\n  ],\n  \"setupFee\": 0,\n  \"isActive\": true,\n  \"isFeatured\": true,\n  \"prices\": [\n    {\n      \"cycle\": \"monthly\",\n      \"amount\": 89900\n    },\n    {\n      \"cycle\": \"annually\",\n      \"amount\": 899000\n    }\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "All money is a whole number of PAISA (100 paisa = 1 taka): 89900 is 899 taka. Needs products.create. A product that is on needs at least one price. Each cycle can have one price: monthly, quarterly, semiannually, annually, biennially, triennially, one_time."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                                    "const d = ((pm.response.json() || {}).data || {}); if (d.id) pm.collectionVariables.set('productId', d.id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: change (prices are replaced)",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products/{{productId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products",
+                                "{{productId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"tagline\": \"New tagline\",\n  \"prices\": [\n    {\n      \"cycle\": \"monthly\",\n      \"amount\": 99900\n    },\n    {\n      \"cycle\": \"annually\",\n      \"amount\": 999000\n    }\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs products.edit. Send only what changes. When `prices` is sent it REPLACES the prices: cycles left out are removed."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Products: delete",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/products/{{productId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "products",
+                                "{{productId}}"
+                            ]
+                        },
+                        "description": "Needs products.delete. It leaves the catalog but stays in the database (old orders point at it)."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Settings",
+            "item": [
+                {
+                    "name": "Tax (VAT): show",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/settings/tax",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "settings",
+                                "tax"
+                            ]
+                        },
+                        "description": "Needs settings.view. Until saved, the defaults from .env."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Tax (VAT): change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/settings/tax",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "settings",
+                                "tax"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"label\": \"VAT\",\n  \"rate\": 15,\n  \"inclusive\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs settings.edit. rate is a percent (0-100, up to 2 decimals). inclusive=true: catalog prices already contain the tax. Prices are not changed; only the tax worked out from them."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Domains",
+            "item": [
+                {
+                    "name": "Extensions: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions"
+                            ]
+                        },
+                        "description": "All extensions, switched off ones too. Needs domains.view. Params: page, status (on|off|no_price|popular), search. 50 per page; meta.counts has the tab counts."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Extensions: update list from Dynadot",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions/sync",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions",
+                                "sync"
+                            ]
+                        },
+                        "description": "Needs domains.edit. Fetches Dynadot's whole price list. New extensions are added switched off; existing ones only get their cost, usage and restrictions refreshed (prices and on/off you set are kept). Returns {added, updated, total}."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Extensions: turn on all priced",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions/activate-priced",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions",
+                                "activate-priced"
+                            ]
+                        },
+                        "description": "Needs domains.edit. Switches on every extension that has a price (typed or worked out) and no registration restriction. Returns {activated}."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Pricing rule: show",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-pricing",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-pricing"
+                            ]
+                        },
+                        "description": "Needs domains.view. usdRate is null until it is set."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Pricing rule: save",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-pricing",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-pricing"
+                            ]
+                        },
+                        "description": "Needs domains.edit. Price = Dynadot cost x usdRate x (1 + marginPercent/100), rounded UP to a multiple of roundTo taka. A price typed on an extension wins.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"usdRate\": 125,\n  \"marginPercent\": 30,\n  \"roundTo\": 10\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Extensions: add",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"extension\": \".shop\",\n  \"tag\": \"New\",\n  \"registerPrice\": 150000,\n  \"renewPrice\": 150000,\n  \"transferPrice\": 150000,\n  \"isFeatured\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs domains.edit. Prices are paisa (150000 = 1,500 taka); leave one out for \"Ask for price\"."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Extensions: change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions/{{extensionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions",
+                                "{{extensionId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"registerPrice\": 120000,\n  \"transferPrice\": null,\n  \"isActive\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Only the fields sent change. A price sent as null is cleared."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Extensions: delete",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domain-extensions/{{extensionId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domain-extensions",
+                                "{{extensionId}}"
+                            ]
+                        },
+                        "description": "Needs domains.delete."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Domains: list",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domains?status=all&page=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domains?status=all&page=1"
+                            ]
+                        },
+                        "description": "status: all, active, pending, expired, cancelled, expiring (active, ends within 30 days). Also search=."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Domains: one with history",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domains/{{domainId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domains",
+                                "{{domainId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Domains: add by hand",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domains",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domains"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"accountId\": 1,\n  \"name\": \"mybrand.com\",\n  \"registrar\": \"manual\",\n  \"status\": \"active\",\n  \"registeredAt\": \"2026-01-10\",\n  \"expiresAt\": \"2027-01-10\",\n  \"nameservers\": [\n    \"ns1.example.com\",\n    \"ns2.example.com\"\n  ],\n  \"notes\": \"\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs domains.create. A domain bought somewhere else, or by hand, that an account owns."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Domains: change",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domains/{{domainId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domains",
+                                "{{domainId}}"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"expiresAt\": \"2028-01-10\",\n  \"autoRenew\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Needs domains.edit. Only the fields sent change."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Domains: remove",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/domains/{{domainId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "domains",
+                                "{{domainId}}"
+                            ]
+                        },
+                        "description": "Needs domains.delete. Removes it from the list; it is not cancelled at the registrar."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test('status is 2xx', () => pm.expect(pm.response.code).to.be.within(200, 299));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
